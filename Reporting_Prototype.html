@@ -67,7 +67,8 @@
     width:100%; height:80px; background:var(--bg-brand-solid);
     display:flex; align-items:center; justify-content:center;
   }
-  .nav-logo svg{width:40px;height:40px;}
+  .nav-logo svg,.nav-logo img{width:40px;height:40px;display:block;}
+  .nav-logo img{object-fit:contain;}
   .nav-item{
     width:100%; padding:16px 8px; display:flex; flex-direction:column;
     align-items:center; gap:8px; cursor:pointer; text-align:center;
@@ -1309,10 +1310,7 @@ function renderNav() {
   /* Logo mark redrawn to match the Alpine Foundations "Logo / Mark / Dark"
      component (node 22:244): rounded hexagon outline with a bold H, white on
      the brand-green cap for contrast. */
-  nav.innerHTML = `<div class="nav-logo"><svg viewBox="0 0 40 40" fill="none">
-    <path d="M20 3 L35.5 12 V30 L20 39 L4.5 30 V12 Z" stroke="white" stroke-width="2.4" stroke-linejoin="round"/>
-    <path d="M15 12.5 V27.5 M25 12.5 V27.5 M15 20 H25" stroke="white" stroke-width="3.6" stroke-linecap="round"/>
-  </svg></div>`;
+  nav.innerHTML = `<div class="nav-logo"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAApCAYAAABHomvIAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAOdEVYdFNvZnR3YXJlAEZpZ21hnrGWYwAAAeZJREFUeAHtmOFVgzAQxw9fv4sTGCcQN6gbdAOzQesEZQUnoJ3AbtA6gToBbkCd4Ly8ps9AE0jggH7g/96/fZDk8mtISS4AV64IGISIMX0tyXN960DeRlH0A2OKwAQ5Q7dUmYChpUaMvCYXBkyhgd5HA3WAXQDokd0MBuoLZmlnA811LAFdVQO2JycBcZyg0EYNYHNoqRpQGRJEcoM5QPdBoOqRkT/7BLP0OXeACrD8oiIUzJgK0lK20E9DeMSRGsyEjM0K5rsr9QhYnaOZpc7G6CzzBE2tHMYwFw0BErSvHHWApXpNoPg/kjt1PauUH6FeK/ILtJck35EXHnVv1ccN9KdjXce+GgMwSDPgUWyZW4/AIC7ABfjNq2D1+YhZNAF21QTYVVyAH+SHinfAIK7XTF5NMem9+AsMmuZgV4UCpuQttNeB/NpQJzYvzoDnhV3trFeulmqekSWc/gS+oCr2G/mJ2j6Tv1wVqe+lAfhtFiR4ueUX0CA8pQpqFywtZStdFnvEqeYmOVrykgTLeYHXDriL0J00JXWNZN+gDrDCd8TPQVJuULSfhoWBWQJ2BmUHc3QQnKWh+5iOBywAdI3l47dhwTxBcz2iGQYe0w0NygrGdYgu4LQM3utbahXY0apxgEkj6w/wr4m1OSPBUwAAAABJRU5ErkJggg==" alt="Humanitru logo" /></div>`;
   NAV_ITEMS.forEach(item => {
     const div = document.createElement("div");
     div.className = "nav-item" + (item.active ? " active" : "");
