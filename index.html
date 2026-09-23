@@ -1496,6 +1496,10 @@ const CONDITION_FIELDS = {
   ],
 };
 
+for (const type of ["actions", "constituents"]) {
+  CONDITION_FIELDS[type].push({key:"last_gift_date", label:"Last Gift Date", valueType:"date", ops:["before", "after", "on", "on or before", "on or after", "between"]});
+}
+
 let conditionIdCounter = 1;
 function nextConditionId() { return conditionIdCounter++; }
 let aiMessages = [];
@@ -1590,7 +1594,8 @@ function conditionMissing(c) {
     missing.value = true;
     return missing;
   }
-  if (c.op === "between") missing.value = !c.min || !c.max;
+  if (field?.valueType === "date") missing.value = !!dateConditionError(c);
+  else if (c.op === "between") missing.value = !c.min || !c.max;
   else if (Array.isArray(c.value)) missing.value = c.value.length === 0;
   else missing.value = !c.value;
   return missing;
@@ -1725,7 +1730,10 @@ function updateCondition(id, key, val) {
     if (wantsMulti && !Array.isArray(c.value)) c.value = [];
     else if (!wantsMulti && Array.isArray(c.value)) c.value = "";
   }
-  if (key === "value" || key === "min" || key === "max") collapseConditionIfComplete(c);
+  if (key === "value" || key === "min" || key === "max") {
+    if (fieldDef(c.fieldKey)?.valueType === "date" && (key === "value" || (c.min && c.max))) c.validationAttempted = true;
+    collapseConditionIfComplete(c);
+  }
   renderConditions();
 }
 function updateConditionField(id, fieldKey) {
@@ -1853,13 +1861,27 @@ function fieldLabel(fieldKey) {
   const f = fieldDef(fieldKey);
   return f ? f.label : "Field";
 }
+function dateConditionError(c) {
+  if (c.op === "between") {
+    const start = sampleDate(c.min), end = sampleDate(c.max);
+    if (!start || !end) return "Enter valid Start Date and End Date";
+    if (start > end) return "End Date must be on or after Start Date";
+    return "";
+  }
+  return sampleDate(c.value) ? "" : "Enter a valid date";
+}
+function dateDisplay(value) {
+  const iso = sampleDate(value);
+  return iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"}) : "…";
+}
 function valueDisplay(c) {
+  if (fieldDef(c.fieldKey)?.valueType === "date") return c.op === "between" ? `${dateDisplay(c.min)} and ${dateDisplay(c.max)}` : dateDisplay(c.value);
   if (c.op === "between") return `${c.min || "…"} – ${c.max || "…"}`;
   if (Array.isArray(c.value)) return c.value.length ? c.value.join(", ") : "…";
   return c.value || "…";
 }
 function summarize(c) {
-  return `${fieldLabel(c.fieldKey)} → ${c.op} → ${valueDisplay(c)}`;
+  return `${fieldLabel(c.fieldKey)} → ${fieldDef(c.fieldKey)?.valueType === "date" && c.op === "between" ? "is between" : c.op} → ${valueDisplay(c)}`;
 }
 
 // Compatibility helper: the card only shows as incomplete after validation
@@ -1937,6 +1959,13 @@ function renderConditionRow(c, inGroup) {
         <input type="text" placeholder="Select a property and condition first" disabled>
         ${renderFieldError(showError && missing.value, "Enter a value", showError)}
       </div>`;
+  } else if (field.valueType === "date" && c.op === "between") {
+    valueField = [ ["min", "Start Date"], ["max", "End Date"] ].map(([key, label]) => `
+      <div class="field-box${showError && missing.value ? ' has-error' : ''}">
+        <label for="date-${c.id}-${key}">${label}</label>
+        <input id="date-${c.id}-${key}" type="date" required value="${sampleDate(c[key])}" aria-invalid="${!!(showError && missing.value)}" aria-describedby="date-error-${c.id}-${key}" onchange="updateCondition(${c.id}, '${key}', this.value)">
+        <div id="date-error-${c.id}-${key}">${renderFieldError(showError && missing.value, dateConditionError(c), showError)}</div>
+      </div>`).join("");
   } else if (c.op === "between") {
     valueField = `
       <div class="field-box${showError && missing.value ? ' has-error' : ''}">
@@ -1970,7 +1999,7 @@ function renderConditionRow(c, inGroup) {
         <label>VALUE</label>
         <select onchange="updateCondition(${c.id}, 'value', this.value)">
           <option value="" ${c.value ? '' : 'selected'}>Select Value...</option>
-          ${field.options.map(o => `<option value="${o}" ${o === c.value ? 'selected' : ''}>${o}</option>`).join("")}
+          ${field.options.map(o => `<option value="${o}" ${o === c.value ? 'selected' : ''}>${field.valueType === "date" && o === "between" ? "is between" : o}</option>`).join("")}
         </select>
         ${renderFieldError(showError && missing.value, "Select a value", showError)}
       </div>`;
@@ -1978,7 +2007,7 @@ function renderConditionRow(c, inGroup) {
     valueField = `
       <div class="field-box${showError && missing.value ? ' has-error' : ''}" style="flex:2 1 260px;">
         <label>VALUE</label>
-        <input type="${field.valueType === 'date' ? 'date' : field.valueType === 'number' ? 'number' : 'text'}" placeholder="Value" value="${c.value}" onchange="updateCondition(${c.id}, 'value', this.value)">
+        <input type="${field.valueType === 'date' ? 'date' : field.valueType === 'number' ? 'number' : 'text'}" placeholder="Value" value="${field.valueType === 'date' ? sampleDate(c.value) : c.value}" onchange="updateCondition(${c.id}, 'value', this.value)">
         ${renderFieldError(showError && missing.value, "Enter a value", showError)}
       </div>`;
   }
@@ -2000,7 +2029,7 @@ function renderConditionRow(c, inGroup) {
         <label>CONDITION</label>
         <select ${field ? "" : "disabled"} onchange="updateCondition(${c.id}, 'op', this.value)">
           <option value="" ${c.op ? '' : 'selected'}>Select Condition...</option>
-          ${ops.map(o => `<option value="${o}" ${o === c.op ? 'selected' : ''}>${o}</option>`).join("")}
+          ${ops.map(o => `<option value="${o}" ${o === c.op ? 'selected' : ''}>${field.valueType === "date" && o === "between" ? "is between" : o}</option>`).join("")}
         </select>
         ${renderFieldError(showError && missing.op, "Select a condition", showError)}
       </div>
@@ -2742,9 +2771,21 @@ function sampleConstituentProfile(row) {
     membership:membership?{status:membership.membershipExpiry>=new Date().toISOString().slice(0,10)?'Active':'Expired',detail:'1 Year membership · Expires '+membership.membershipExpiry}:{status:'None',detail:'No membership payments in the sample data.'}};
 }
 
-function openConstituentDrawer(id) {
-  const r = RESULTS_ROWS.find(row => row.id === id);
-  const p = r ? sampleConstituentProfile(r) : null;
+function openConstituentDrawer(id, linked = false) {
+  const action = RESULTS_ROWS.find(row => row.id === id);
+  const info = linked ? action?.linkedConstituentInfo : null;
+  if (linked && !info) return;
+  const r = info ? {name:info.name, initials:info.name.split(' ').map(x=>x[0]).slice(0,2).join('')} : action;
+  const p = info ? {
+    email:info.email, phone:info.phone, since:info.creation_date, cid:info.id, address:info.address,
+    stats:[["Total Donated",info.lifetime_giving],["Last Gift Date",info.last_gift_date]],
+    timeline:[], basic:[["Email Salutation",info.email_salutation],["Mailing Name",info.mailing_name]], pinned:[],
+    tags:(info.tags_all || []).map(t=>["Tag",t]),
+    relationships:[{initials:action.initials,name:action.name,role:info.relationship}],
+    membership:{status:info.membership_status,detail:""},
+    insights:[["Giving",info.giving_score],["Engagement",info.engagement_score]],
+    pipeline:{status:"Not provided",detail:""}
+  } : r ? sampleConstituentProfile(r) : null;
   if (!r || !p) return;
   const panel = document.getElementById("drawer-panel");
   const statTiles = p.stats.map(([label, value]) => `
@@ -4307,19 +4348,26 @@ const campaignField = CONDITION_FIELDS.actions.find(f=>f.key==='applied_campaign
 if (campaignField) campaignField.options = [...new Set([...(campaignField.options||[]), 'Annual Fund Campaign 2025','Capital Campaign','Annual Fund 2026','2026 Major Gifts','2026 Gala','RFVA Newsletter March 2018','Due Date News','General Operating','Membership Purchase','Acknowledgment Sent','Donation Acknowledgment','Major Donor Pipeline','Paula’s AF 26','Pinecone Actions: Weekly Donation'])].sort();
 for(const [key,prop,label] of [['applied_campaigns','campaigns','Applied Campaigns'],['tags','tags','Tags']]) COLUMN_DEFS[key]={label:label.toUpperCase(),menuEnabled:true,sortValue:r=>(r[prop]||[]).join(', '),cell:r=>(r[prop]||[]).length?`<div class="expand-chip-row" style="margin-top:0;">${(r[prop]||[]).map(v=>`<span class="tag-chip">${escapeHtml(v)}</span>`).join('')}</div>`:dashCell()};
 function sampleDate(value){
- const t=String(value).toLowerCase(), d=new Date();d.setHours(12,0,0,0);
- if(t==='today')return d.toISOString().slice(0,10);
- const rel=t.match(/(last|next) (\d+) days/);if(rel){d.setDate(d.getDate()+(rel[1]==='last'?-1:1)*Number(rel[2]));return d.toISOString().slice(0,10);}
- const parsed=new Date(value);return isNaN(parsed)?'':parsed.toISOString().slice(0,10);
+ if (typeof value !== 'string' || !value.trim()) return '';
+ const t=value.trim().toLowerCase(), d=new Date();d.setHours(12,0,0,0);
+ const localISO=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+ if(t==='today')return localISO(d);
+ const rel=t.match(/^(last|next) (\d+) days$/);if(rel){d.setDate(d.getDate()+(rel[1]==='last'?-1:1)*Number(rel[2]));return localISO(d);}
+ if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+   const parsed=new Date(t+'T12:00:00');
+   return !isNaN(parsed) && localISO(parsed)===t ? t : '';
+ }
+ if (!/^[a-z]{3,9} \d{1,2}, \d{4}$/i.test(value.trim())) return '';
+ const parsed=new Date(value);return isNaN(parsed)?'':localISO(parsed);
 }
 function matchesCondition(r,c){
- const fields={action_type:SAMPLE_TYPES[r.type],action_date:r.actionDate,input_date:r.inputDate,edit_date:r.inputDate,assigned_user:r.assigned,creator_source:r.source,verified_status:r.status,action_note:r.expand?.notes||'',applied_campaigns:r.campaigns,tags:r.tags,attachment:r.attachment?'Has attachments':'Does not have attachments',action_amount:r.amount,fair_market_value:r.fmv,tax_deductible_amount:r.amount==null?null:r.amount-(r.fmv||0),quantity:r.ticketQty,hours:r.volunteerHours,membership_length:r.type==='membership'?12:null,membership_expiration:r.membershipExpiry};
+ const fields={action_type:SAMPLE_TYPES[r.type],action_date:r.actionDate,input_date:r.inputDate,edit_date:r.inputDate,assigned_user:r.assigned,creator_source:r.source,verified_status:r.status,action_note:r.expand?.notes||'',applied_campaigns:r.campaigns,tags:r.tags,attachment:r.attachment?'Has attachments':'Does not have attachments',action_amount:r.amount,fair_market_value:r.fmv,tax_deductible_amount:r.amount==null?null:r.amount-(r.fmv||0),quantity:r.ticketQty,hours:r.volunteerHours,membership_length:r.type==='membership'?12:null,membership_expiration:r.membershipExpiry,last_gift_date:r.constituentInfo?.last_gift_date,close_date:r.closeDate,due_date:r.dueDate};
  let v=fields[c.fieldKey], val=c.value, op=c.op, match=false;
  const norm=x=>String(x??'').trim().toLowerCase();
  if(c.fieldKey==='verified_status'&&val==='All')match=true;
- else if(c.fieldKey.includes('date')||c.fieldKey==='membership_expiration'){
+ else if(fieldDef(c.fieldKey)?.valueType==='date'){
  v=sampleDate(v);val=sampleDate(val);const low=sampleDate(c.min),high=sampleDate(c.max);
- match=!!v&&(op==='between'?!!low&&!!high&&v>=low&&v<=high:op==='before'?v<val:op==='after'?v>val:op==='on or before'?v<=val:op==='on or after'?v>=val:v===val);
+ match=!dateConditionError(c)&&!!v&&(op==='between'?!!low&&!!high&&v>=low&&v<=high:op==='before'?v<val:op==='after'?v>val:op==='on or before'?v<=val:op==='on or after'?v>=val:v===val);
  }else if(['<','>','<=','>=','=','!='].includes(op)){
  const n=Number(val);match=v!=null&&({'<':v<n,'>':v>n,'<=':v<=n,'>=':v>=n,'=':v===n,'!=':v!==n}[op]);
  }else{
@@ -4723,12 +4771,9 @@ function wireConstituentColumnDefs(){
 }
 function linkedConstituentSummaryHtml(row){
   const linked = row.linkedConstituentInfo;
-  if (!linked) return `<div class="expand-field"><span class="expand-field-label">Linked Constituent:</span> <span class="expand-chip-empty">No linked constituent for this action</span></div>`;
-  return `
-    <div class="expand-field"><span class="expand-field-label">Linked Constituent:</span> ${escapeHtml(linked.name)} <span style="color:var(--text-secondary);">· ${escapeHtml(linked.relationship || "Linked constituent")}</span></div>
-    <div class="expand-field"><span class="expand-field-label">Linked Contact:</span> ${escapeHtml(linked.email)} · ${escapeHtml(linked.phone)}</div>
-    <div class="expand-field"><span class="expand-field-label">Linked Tags:</span></div>
-    <div class="expand-chip-row">${(linked.tags_all || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join("")}</div>`;
+  if (!linked) return "";
+  const label = /soft credit/i.test(linked.relationship || "") ? "Soft Credit From" : "Linked Constituent";
+  return `<div class="expand-field"><span class="expand-field-label">${label}:</span> <button class="name-link" onclick="openConstituentDrawer(${row.id}, true)">${escapeHtml(linked.name)}</button></div>`;
 }
 const originalRenderExpandPanelRowForConstituentInfo = renderExpandPanelRow;
 renderExpandPanelRow = function(r, colSpan, zebraClass) {
@@ -4742,26 +4787,18 @@ renderExpandPanelRow = function(r, colSpan, zebraClass) {
   const btnHtml = e.viewSentEmail ? `<button class="expand-action-btn email" onclick="openSentEmailModal(${r.id})"><i class="bi bi-eye"></i>View Sent Email</button>`
     : e.actionButton ? `<button class="expand-action-btn"><i class="bi bi-search"></i>${escapeHtml(e.actionButton)}</button>` : "";
   const boilerplateHtml = e.boilerplate ? `<div class="expand-boilerplate"><div class="expand-boilerplate-heading">${escapeHtml(e.boilerplate.heading)}</div>${escapeHtml(e.boilerplate.body)}</div>` : "";
-  const info = r.constituentInfo || {};
-  const constituentMini = `
-    <div class="expand-field"><span class="expand-field-label">Constituent Info:</span> ${escapeHtml(info.email || "—")} · ${escapeHtml(info.phone || "—")}</div>
-    <div class="expand-field"><span class="expand-field-label">Address:</span> ${escapeHtml(info.address || "—")}</div>
-    <div class="expand-field"><span class="expand-field-label">Segment:</span> ${escapeHtml(info.donor_segment || "—")} · Giving Score ${escapeHtml(info.giving_score || "—")} · Engagement Score ${escapeHtml(info.engagement_score || "—")}</div>`;
+  const pills = [...(r.campaigns || []), ...(r.tags || [])];
+  const pillsHtml = pills.length ? `<div class="expand-chip-row">${pills.map(t=>`<span class="tag-chip">${escapeHtml(t)}</span>`).join("")}</div>` : "";
   return `
     <tr class="expand-row ${zebraClass}">
       <td colspan="${colSpan}">
         <div class="expand-panel">
           ${fieldsHtml}
-          ${constituentMini}
           ${linkedConstituentSummaryHtml(r)}
-          <div class="expand-field"><span class="expand-field-label">Applied Campaigns:</span></div>
-          <div class="expand-chip-row">${(r.campaigns || []).length ? (r.campaigns || []).map(c => `<span class="tag-chip">${escapeHtml(c)}</span>`).join("") : '<span class="expand-chip-empty">No applied campaigns</span>'}</div>
-          <div class="expand-field"><span class="expand-field-label">Tags:</span></div>
-          <div class="expand-chip-row">${(r.tags || []).length ? (r.tags || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join("") : '<span class="expand-chip-empty">No tags</span>'}</div>
-          <div class="expand-field"><span class="expand-field-label">System Details:</span> Sample action ${escapeHtml(r.actionId)} · ${escapeHtml(r.source)}</div>
           ${notesHtml}
           ${btnHtml}
           ${boilerplateHtml}
+          ${pillsHtml}
         </div>
       </td>
     </tr>`;
